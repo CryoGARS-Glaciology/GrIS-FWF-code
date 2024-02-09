@@ -15,7 +15,7 @@ bg = ncread('BedMachineGreenland-v5.nc','geoid'); %geoid elevations relative to 
 %loop through the AeroDEMs to make site-specific thickness maps
 cd([root_dir,'AeroDEM/']);
 AeroDEMs = dir('*19*.tif'); %if all in the same directory
-for j = 34:length(AeroDEMs)
+for j = 1:length(AeroDEMs)
     %load the AeroDEM
     [Z,S] = readgeoraster(AeroDEMs(j).name);
     Zo.x = S.XWorldLimits(1)+0.5*S.CellExtentInWorldX:S.CellExtentInWorldX:S.XWorldLimits(2)-0.5*S.CellExtentInWorldX;
