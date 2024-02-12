@@ -8,6 +8,7 @@ cd('/Users/ellynenderlin/Research/miscellaneous/BedMachine/');
 bx = ncread('BedMachineGreenland-v5.nc','x');
 by = ncread('BedMachineGreenland-v5.nc','y');
 bz = ncread('BedMachineGreenland-v5.nc','bed'); %bed elevations
+bze = ncread('BedMachineGreenland-v5.nc','errbed'); %bed elevations
 bg = ncread('BedMachineGreenland-v5.nc','geoid'); %geoid elevations relative to WGS84 ellipsoid
 %figure; imagesc(bx,by,bz'); axis xy equal; colormap jet; colorbar; %plot bed to check everything looks good
 %figure; imagesc(bx,by,bg'); axis xy equal; colormap jet; colorbar; %plot geoid to check everything looks good
@@ -50,9 +51,11 @@ for j = 1:length(AeroDEMs)
     bed_yind = [find(by>=max(BB(:,2)),1,'last'),find(by<=min(BB(:,2)),1,'first')];
     bed_xsub = bx(min(bed_xind):max(bed_xind)); bed_ysub = by(min(bed_yind):max(bed_yind));
     bed_zsub = bz(min(bed_xind):max(bed_xind),min(bed_yind):max(bed_yind))'; %rotate so rows are y, columns are x
+    bed_zesub = bze(min(bed_xind):max(bed_xind),min(bed_yind):max(bed_yind))';
     bed_gsub = bg(min(bed_xind):max(bed_xind),min(bed_yind):max(bed_yind))'; %rotate so rows are y, columns are x
     % figure; imagesc(bed_xsub,bed_ysub,bed_zsub); axis xy equal; colormap jet; colorbar; %plot to check subsetting
     Ho = NaN(size(bed_zsub)); Hf = NaN(size(bed_zsub));
+    Hoe = NaN(size(bed_zesub)); Hfe = NaN(size(bed_zesub));
     
     %interpolate the surface elevations to the subset geoid map
     [zo_xgrid,zo_ygrid] = meshgrid(Zo.x,Zo.y);
@@ -66,20 +69,27 @@ for j = 1:length(AeroDEMs)
     
     %calculate the ice thickness for each DEM under the assumption of flotation
     floating = 1026/(1026-900); %multiplier to convert elevation to thickness
+    hoe = 5.4; %AeroDEM uncertainty (m)
+    hfe = 2.28; %ArcticDEM uncertainty (m)
     Ho_float = floating.*zo_interp; Hf_float = floating.*zf_interp;
+    Hoe_float = sqrt(floating^2*hoe.^2)*ones(size(bed_zesub));
+    Hfe_float = sqrt(floating^2*hfe.^2)*ones(size(bed_zesub));
     
     %calculate the ice thickness within each DEM as the difference between
     %the surface & bed elevations
     Ho_ground = zo_interp - bed_zsub; Hf_ground = zf_interp - bed_zsub;
-
+    Hoe_ground = sqrt((hoe*ones(size(bed_zesub))).^2 + bed_zesub.^2);
+    Hfe_ground = sqrt((hfe*ones(size(bed_zesub))).^2 + bed_zesub.^2);
+    
     %if the floating thickness is less than the difference thickness, fill
     %in the dummy thickness map with the floating thickness, else use the
     %difference thickness
-    Ho(Ho_float<Ho_ground) = Ho_float(Ho_float<Ho_ground);
-    Ho(Ho_float>=Ho_ground) = Ho_ground(Ho_float>=Ho_ground);
-    Hf(Hf_float<Hf_ground) = Hf_float(Hf_float<Hf_ground);
-    Hf(Hf_float>=Hf_ground) = Hf_ground(Hf_float>=Hf_ground);
+    Ho(Ho_float<Ho_ground) = Ho_float(Ho_float<Ho_ground); Ho(Ho_float>=Ho_ground) = Ho_ground(Ho_float>=Ho_ground);
+    Hf(Hf_float<Hf_ground) = Hf_float(Hf_float<Hf_ground); Hf(Hf_float>=Hf_ground) = Hf_ground(Hf_float>=Hf_ground);
     Ho(Ho<0) = 0; Hf(Hf<0) = 0;
+    %uncertainty maps
+    Hoe(Ho_float<Ho_ground) = Hoe_float(Ho_float<Ho_ground); Hoe(Ho_float>=Ho_ground) = Hoe_ground(Ho_float>=Ho_ground);
+    Hfe(Hf_float<Hf_ground) = Hfe_float(Hf_float<Hf_ground); Hfe(Hf_float>=Hf_ground) = Hfe_ground(Hf_float>=Hf_ground);
     %check the thickness maps
     figure; set(gca,'position',[50 50 800 400]); 
     cmap = colormap(jet(10001)); cmap(1,:) = [1 1 1];
@@ -102,11 +112,13 @@ for j = 1:length(AeroDEMs)
     So.YWorldLimits = sort([double(nanmean(by(min(bed_yind)-1:min(bed_yind)))) double(nanmean(by(max(bed_yind):max(bed_yind)+1)))]);
     So.RasterSize = size(Ho); 
     geotiffwrite([AeroDEMs(j).name(1:end-8),'thickness_',AeroDEMs(j).name(end-7:end-4),'.tif'],Ho,So,'CoordRefSysCode',3413);
+    geotiffwrite([AeroDEMs(j).name(1:end-8),'thickness-error_',AeroDEMs(j).name(end-7:end-4),'.tif'],Hoe,So,'CoordRefSysCode',3413);
     Sf = S;
     Sf.XWorldLimits = sort([double(nanmean(bx(min(bed_xind)-1:min(bed_xind)))) double(nanmean(bx(max(bed_xind):max(bed_xind)+1)))]);
     Sf.YWorldLimits = sort([double(nanmean(by(min(bed_yind)-1:min(bed_yind)))) double(nanmean(by(max(bed_yind):max(bed_yind)+1)))]);
     Sf.RasterSize = size(Hf); 
     geotiffwrite([AeroDEMs(j).name(1:end-8),'thickness_2016.tif'],Hf,Sf,'CoordRefSysCode',3413);
+    geotiffwrite([AeroDEMs(j).name(1:end-8),'thickness-error_2016.tif'],Hfe,Sf,'CoordRefSysCode',3413);
     
     %clear out variables
     clear Z* S* BB ArcticDEM* dem*ind bed_* b_*grid H* zo* zf* clims;
