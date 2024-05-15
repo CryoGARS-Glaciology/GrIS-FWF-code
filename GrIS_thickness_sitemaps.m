@@ -3,6 +3,12 @@ clearvars; close all;
 addpath('/Users/ellynenderlin/Research/miscellaneous/general-code/');
 root_dir = '/Users/ellynenderlin/Research/NSF_GrIS-Freshwater/';
 
+%flag glaciers that have anomalous, unrealistic spikes in ablation
+bad_glaciers = ['do_not_use'];
+% bad_glaciers = ['Narsap_Sermia','Qeqertaarsuusarsuup_Sermia',...
+%     'Sverdrup_Gletsjer','Sermersuaq','Innaqqissorsuup_Oqquani_Sermeq'];%,...
+    %'Sermeq_Kujalleq_JI','Helheim_Gletsjer'];
+
 %read in BedMachine Greenland v5 (elevations referenced to the geoid)
 cd('/Users/ellynenderlin/Research/miscellaneous/BedMachine/');
 bx = ncread('BedMachineGreenland-v5.nc','x');
@@ -17,6 +23,10 @@ bg = ncread('BedMachineGreenland-v5.nc','geoid'); %geoid elevations relative to 
 cd([root_dir,'AeroDEM/']);
 AeroDEMs = dir('*19*.tif'); %if all in the same directory
 for j = 1:length(AeroDEMs)
+    name_breaks = strfind(AeroDEMs(j).name,'_');
+    site_name = AeroDEMs(j).name(1:name_breaks(end)-1);
+    disp(site_name);
+    
     %load the AeroDEM
     [Z,S] = readgeoraster(AeroDEMs(j).name);
     Zo.x = S.XWorldLimits(1)+0.5*S.CellExtentInWorldX:S.CellExtentInWorldX:S.XWorldLimits(2)-0.5*S.CellExtentInWorldX;
@@ -67,6 +77,20 @@ for j = 1:length(AeroDEMs)
     %convert interpolated ellipsoidal elevations to orthometric elevations
     zo_interp = zo_interp - single(bed_gsub); zf_interp = zf_interp - single(bed_gsub);
     
+    %check the elevation maps
+    figure; set(gca,'position',[50 50 800 400]); 
+    cmap = colormap(jet(10001)); cmap(1,:) = [1 1 1];
+    clims = [-1, 100];
+    subplot(1,2,1);
+    imagesc(bed_xsub,bed_ysub,zo_interp); axis xy equal; colormap(gca,cmap);
+    set(gca,'clim',clims,'fontsize',12);
+    xlabel('Easting (m)','fontsize',12); ylabel('Northing (m)','fontsize',12); 
+    subplot(1,2,2); pos = get(gca,'position');
+    imagesc(bed_xsub,bed_ysub,zf_interp); axis xy equal; colormap(gca,cmap); cbar = colorbar;
+    set(gca,'clim',clims,'yticklabel',[],'fontsize',12); cbar.Label.String = 'elevation (m a.s.l.)';
+    xlabel('Easting (m)','fontsize',12); 
+    set(gca,'position',[pos(1)-0.05 pos(2) pos(3) pos(4)]);
+    
     %calculate the ice thickness for each DEM under the assumption of flotation
     floating = 1026/(1026-900); %multiplier to convert elevation to thickness
     hoe = 5.4; %AeroDEM uncertainty (m)
@@ -81,19 +105,31 @@ for j = 1:length(AeroDEMs)
     Hoe_ground = sqrt((hoe*ones(size(bed_zesub))).^2 + bed_zesub.^2);
     Hfe_ground = sqrt((hfe*ones(size(bed_zesub))).^2 + bed_zesub.^2);
     
-    %if the floating thickness is less than the difference thickness, fill
-    %in the dummy thickness map with the floating thickness, else use the
-    %difference thickness
-    Ho(Ho_float<Ho_ground) = Ho_float(Ho_float<Ho_ground); Ho(Ho_float>=Ho_ground) = Ho_ground(Ho_float>=Ho_ground);
-    Hf(Hf_float<Hf_ground) = Hf_float(Hf_float<Hf_ground); Hf(Hf_float>=Hf_ground) = Hf_ground(Hf_float>=Hf_ground);
-    Ho(Ho<0) = 0; Hf(Hf<0) = 0;
-    %uncertainty maps
-    Hoe(Ho_float<Ho_ground) = Hoe_float(Ho_float<Ho_ground); Hoe(Ho_float>=Ho_ground) = Hoe_ground(Ho_float>=Ho_ground);
-    Hfe(Hf_float<Hf_ground) = Hfe_float(Hf_float<Hf_ground); Hfe(Hf_float>=Hf_ground) = Hfe_ground(Hf_float>=Hf_ground);
+    %create final thickness maps
+    if contains(bad_glaciers,site_name) %create maps of totally floating ice for glaciers with >10 Gt/yr spikes in terminus ablation
+        Ho = Ho_float; Ho(Ho<0) = 0; 
+        Hf = Hf_float; Hf(Hf<0) = 0;
+        %uncertainty maps
+        Hoe = Hoe_float; 
+        Hfe = Hfe_float; 
+        disp('   all floating map!');
+    else
+        %if the floating thickness is less than the difference thickness, fill
+        %in the dummy thickness map with the floating thickness, else use the
+        %difference thickness
+        Ho(Ho_float<Ho_ground) = Ho_float(Ho_float<Ho_ground); Ho(Ho_float>=Ho_ground) = Ho_ground(Ho_float>=Ho_ground);
+        Hf(Hf_float<Hf_ground) = Hf_float(Hf_float<Hf_ground); Hf(Hf_float>=Hf_ground) = Hf_ground(Hf_float>=Hf_ground);
+        Ho(Ho<0) = 0; Hf(Hf<0) = 0;
+        %uncertainty maps
+        Hoe(Ho_float<Ho_ground) = Hoe_float(Ho_float<Ho_ground); Hoe(Ho_float>=Ho_ground) = Hoe_ground(Ho_float>=Ho_ground);
+        Hfe(Hf_float<Hf_ground) = Hfe_float(Hf_float<Hf_ground); Hfe(Hf_float>=Hf_ground) = Hfe_ground(Hf_float>=Hf_ground);
+    end
+    
     %check the thickness maps
     figure; set(gca,'position',[50 50 800 400]); 
     cmap = colormap(jet(10001)); cmap(1,:) = [1 1 1];
-    clims = [-1, max([max(Ho(~isnan(Ho))),max(Hf(~isnan(Hf)))])];
+%     clims = [-1, max([max(Ho(~isnan(Ho))),max(Hf(~isnan(Hf)))])];
+    clims = [-1, 1000];
     subplot(1,2,1);
     imagesc(bed_xsub,bed_ysub,Ho); axis xy equal; colormap(gca,cmap);
     set(gca,'clim',clims,'fontsize',12);
@@ -121,7 +157,7 @@ for j = 1:length(AeroDEMs)
     geotiffwrite([AeroDEMs(j).name(1:end-8),'thickness-error_2016.tif'],Hfe,Sf,'CoordRefSysCode',3413);
     
     %clear out variables
-    clear Z* S* BB ArcticDEM* dem*ind bed_* b_*grid H* zo* zf* clims;
+    clear Z* S* BB ArcticDEM* dem*ind bed_* b_*grid H* zo* zf* clims *name*;
     end
     cd([root_dir,'AeroDEM/']);
 end
